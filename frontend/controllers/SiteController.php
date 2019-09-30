@@ -1,6 +1,10 @@
 <?php
 namespace frontend\controllers;
 
+use common\exception\CantEatException;
+use common\exception\IncorrectActionException;
+use common\exception\IncorrectValueException;
+use common\models\Fruit\Apple;
 use frontend\models\ResendVerificationEmailForm;
 use frontend\models\VerifyEmailForm;
 use Yii;
@@ -13,13 +17,14 @@ use common\models\LoginForm;
 use frontend\models\PasswordResetRequestForm;
 use frontend\models\ResetPasswordForm;
 use frontend\models\SignupForm;
-use frontend\models\ContactForm;
 
 /**
  * Site controller
  */
 class SiteController extends Controller
 {
+
+   const PER_SET = 20;
     /**
      * {@inheritdoc}
      */
@@ -28,15 +33,13 @@ class SiteController extends Controller
         return [
             'access' => [
                 'class' => AccessControl::className(),
-                'only' => ['logout', 'signup'],
                 'rules' => [
                     [
-                        'actions' => ['signup'],
+                        'actions' => ['login', 'signup'],
                         'allow' => true,
                         'roles' => ['?'],
                     ],
                     [
-                        'actions' => ['logout'],
                         'allow' => true,
                         'roles' => ['@'],
                     ],
@@ -67,6 +70,22 @@ class SiteController extends Controller
         ];
     }
 
+    private static function getApple($id) {
+		if (null === $id) {
+			Yii::$app->getSession()->addFlash('error', 'Id does not set');
+			return false;
+		}
+
+		$apple = Apple::findOne($id);
+
+		if (null === $apple) {
+			Yii::$app->getSession()->addFlash('error', 'Object not found');
+			return false;
+		}
+
+		return $apple;
+	}
+
     /**
      * Displays homepage.
      *
@@ -74,8 +93,76 @@ class SiteController extends Controller
      */
     public function actionIndex()
     {
-        return $this->render('index');
+		$apples = Apple::getHaveNotEaten();
+
+		return $this->render('apples', [
+			'apples' => $apples,
+		]);
     }
+
+	/**
+	 * @return \yii\web\Response
+	 */
+	public function actionDrop()
+	{
+		$request = Yii::$app->request;
+		$id = $request->get('id');
+
+		$apple = static::getApple($id);
+		if (!$apple) {
+			return $this->redirect(['index']);
+		}
+
+		try {
+			$apple->fallToGround();
+			$apple->save();
+			Yii::$app->getSession()->addFlash('success', 'Apple successfully fell');
+		} catch (IncorrectActionException $e) {
+			Yii::$app->getSession()->addFlash('error', $e->getMessage());
+		} finally {
+			return $this->redirect(['index']);
+		}
+
+	}
+
+	/**
+	 * @return \yii\web\Response
+	 */
+	public function actionEat()
+	{
+		$request = Yii::$app->request;
+		$id = $request->get('id');
+		$apple = static::getApple($id);
+
+		if (!$apple) {
+			return $this->redirect(['index']);
+		}
+		try {
+			if ($apple->load($request->post()) && $apple->save()) {
+				Yii::$app->getSession()->addFlash('success', 'Apple successfully ate');
+			}
+		} catch (IncorrectValueException $e) {
+			Yii::$app->getSession()->addFlash('error', $e->getMessage());
+		} catch (CantEatException $e) {
+			Yii::$app->getSession()->addFlash('error', $e->getMessage());
+		} finally {
+			return $this->redirect(['index']);
+		}
+	}
+
+	/**
+	 * @return \yii\web\Response
+	 */
+	public function actionGenerate() {
+		Apple::deleteAll();
+		for($i = 0; $i < static::PER_SET; $i++) {
+			$apple = Apple::generateRandomApple();
+			$apple->save();
+		}
+
+		Yii::$app->getSession()->addFlash('success', 'Apples successfully generated');
+		return $this->redirect(['index']);
+	}
 
     /**
      * Logs in a user.
@@ -110,39 +197,6 @@ class SiteController extends Controller
         Yii::$app->user->logout();
 
         return $this->goHome();
-    }
-
-    /**
-     * Displays contact page.
-     *
-     * @return mixed
-     */
-    public function actionContact()
-    {
-        $model = new ContactForm();
-        if ($model->load(Yii::$app->request->post()) && $model->validate()) {
-            if ($model->sendEmail(Yii::$app->params['adminEmail'])) {
-                Yii::$app->session->setFlash('success', 'Thank you for contacting us. We will respond to you as soon as possible.');
-            } else {
-                Yii::$app->session->setFlash('error', 'There was an error sending your message.');
-            }
-
-            return $this->refresh();
-        } else {
-            return $this->render('contact', [
-                'model' => $model,
-            ]);
-        }
-    }
-
-    /**
-     * Displays about page.
-     *
-     * @return mixed
-     */
-    public function actionAbout()
-    {
-        return $this->render('about');
     }
 
     /**
