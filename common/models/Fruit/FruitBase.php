@@ -15,7 +15,6 @@ use yii\db\ActiveRecord;
  * @property string $color
  * @property integer $created_at
  * @property integer $fallen_at
- * @property integer $position_state
  * @property float $size
  *
  */
@@ -23,6 +22,21 @@ abstract class FruitBase extends ActiveRecord
 {
 	const DEFAULT_SIZE = 100;
 	const DECAYED_TIME = "+5 hours";
+
+	protected $percentToEat;
+
+	/**
+	 * @return array
+	 */
+	public function rules()
+	{
+		return [
+			[['created_at', 'fallen_at'], 'number'],
+			[['size'], 'double', 'min' => 0, 'max' => self::DEFAULT_SIZE],
+			[['percentToEat'], 'double'],
+			[['color'], 'string', 'max' => 64],
+		];
+	}
 
 	/**
 	 *
@@ -37,14 +51,42 @@ abstract class FruitBase extends ActiveRecord
 		parent::init();
 	}
 
+
+	/**
+	 * @param bool $insert
+	 * @return bool
+	 * @throws CantEatException
+	 * @throws IncorrectValueException
+	 */
+	public function beforeSave($insert) : bool
+	{
+		if (parent::beforeSave($insert)) {
+			if (null !== $this->percentToEat) {
+				$this->eat((float)$this->percentToEat);
+			}
+
+			if (0 === $this->fallen_at && $this->size < static::DEFAULT_SIZE) {
+				$this->addError('content', 'Can not save with wrong data');
+				return false;
+			}
+			return true;
+		}
+		return false;
+	}
+
 	/**
 	 * @return bool
 	 */
-	protected function isDecayed() {
+	public function isDecayed() {
 		return $this->fallen_at > 0 && strtotime(self::DECAYED_TIME, $this->fallen_at) < time();
 	}
 
 
+	/**
+	 * @param float $percent
+	 * @throws CantEatException
+	 * @throws IncorrectValueException
+	 */
 	public function eat(float $percent) {
 		if (0 === $this->fallen_at) {
 			throw new CantEatException('Can not eat fruit on the tree');
@@ -62,7 +104,7 @@ abstract class FruitBase extends ActiveRecord
 	}
 
 	/**
-	 * @throws \IncorrectActionException
+	 * @throws IncorrectActionException
 	 */
 	public function fallToGround() {
 		if ($this->fallen_at > 0) {
@@ -74,7 +116,21 @@ abstract class FruitBase extends ActiveRecord
 	/**
 	 * @return float
 	 */
-	public function getSize() {
+	public function getSize() : float {
 		return round($this->size / self::DEFAULT_SIZE, 2);
+	}
+
+	/**
+	 * @return array|ActiveRecord[]
+	 */
+	public static function getHaveNotEaten() {
+		return self::find()->where('size > 0')->all();
+	}
+
+	/**
+	 * @return float
+	 */
+	public function getPercentToEat() {
+		return $this->percentToEat;
 	}
 }
